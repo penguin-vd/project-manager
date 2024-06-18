@@ -1,6 +1,6 @@
 CXX = g++
 CXXFLAGS = -Wall -Wextra -g -l sqlite3
-SRCS = main.cpp
+SRCS = ui_library.cpp main.cpp
 BUILD_DIR = build
 
 MAIN = $(BUILD_DIR)/pm
