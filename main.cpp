@@ -1,97 +1,13 @@
-#include <cstdio>
-#include <sqlite3.h>
-#include <string>
-#include <filesystem>
-#include <termios.h>
-#include <vector>
-#include <cstdlib>
-#include <unistd.h>
+#include "database.h"
 #include "ui_library.h"
 
 namespace fs = std::filesystem;
-
-struct project
-{
-    int id;
-    const std::string name;
-    const std::string path;
-};
-
-struct todo
-{
-    int id;
-    int project_id;
-    const std::string task;
-};
-
-int execute_sql(sqlite3 *db, const char *sql) 
-{
-    char *err_msg = nullptr;
-    int rc = sqlite3_exec(db, sql, 0, 0, &err_msg);
-    if (rc != SQLITE_OK) {
-        fprintf(stderr, "SQL error: %s\n", err_msg);
-        sqlite3_free(err_msg);
-        return 1;
-    }
-    return 0;
-}
-
-int setup_database(sqlite3 *db)
-{
-    int rc;
-    const char *projects = "CREATE TABLE IF NOT EXISTS projects ( "
-                           "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                           "name TEXT NOT NULL, "
-                           "path TEXT UNIQUE "
-                           ");";
-    
-    rc = execute_sql(db, projects);
-    if (rc) {
-        return rc;
-    }
-
-    const char *todos = "CREATE TABLE IF NOT EXISTS todos ( "
-                        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                        "project_id INTEGER NOT NULL, "
-                        "task TEXT NOT NULL, "
-                        "FOREIGN KEY (project_id) REFERENCES projects (id) "
-                        ");";
-    rc = execute_sql(db, todos);
-    if (rc) {
-        return rc;
-    }
-
-    return 0;
-}
-
-void insert_projects(sqlite3 *db, const std::string name, const std::string path)
-{
-    int rc;
-    const char *sql = "INSERT OR IGNORE INTO projects (name, path) VALUES (?, ?)";
-    sqlite3_stmt *stmt;
-    rc = sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
-    if (rc != SQLITE_OK) {
-        fprintf(stderr, "Failed to prepare statement: %s\n", sqlite3_errmsg(db));
-        return;
-    }
-    
-    sqlite3_bind_text(stmt, 1, name.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 2, path.c_str(), -1, SQLITE_TRANSIENT);
-
-    rc = sqlite3_step(stmt);
-    if (rc != SQLITE_DONE) {
-        fprintf(stderr, "Failed to insert project: %s\n", sqlite3_errmsg(db));
-        return;
-    }
-    sqlite3_finalize(stmt);
-}
 
 void locate_projects(sqlite3 *db, std::vector<project> *projects)
 {
     std::string home_dir = std::getenv("HOME");
     if (home_dir.empty()) {
-        fprintf(stderr, "HOME directory not found");
-        exit(-1);
+        exit_program(db, "HOME directory not found");
     }
 
     fs::path home_path(home_dir + "/Documents");
@@ -106,87 +22,6 @@ void locate_projects(sqlite3 *db, std::vector<project> *projects)
     }
 }
 
-int get_project_id(sqlite3 *db, project &project)
-{
-    int rc;
-    const std::string sql = "SELECT id from projects WHERE path=\'" + project.path + "\'";
-    sqlite3_stmt *stmt;
-    rc = sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, NULL);
-    if (rc != SQLITE_OK) {
-        return -40;
-    }
-    
-    int id;
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
-        id = sqlite3_column_int(stmt, 0);
-    }
-
-    return id;
-}
-
-std::vector<todo> get_todos(sqlite3 *db, const project project)
-{
-    std::vector<todo> todos;
-    int rc;
-    const std::string sql = "SELECT id, task FROM todos WHERE project_id=" + std::to_string(project.id);
-    sqlite3_stmt *stmt;
-    rc = sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, NULL);
-    if (rc != SQLITE_OK) {
-        return todos;
-    }
-
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
-        int id = sqlite3_column_int(stmt, 0);
-        const std::string task = (const char *)sqlite3_column_text(stmt, 1);
-        todos.push_back({id, project.id, task});
-    }
-
-    return todos;
-}
-
-void add_todo(sqlite3 *db, const project project, const std::string task)
-{
-    int rc;
-    const char *sql = "INSERT INTO todos (project_id, task) VALUES (?, ?)";
-    sqlite3_stmt *stmt;
-    rc = sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
-    if (rc != SQLITE_OK) {
-        return;
-    }
-
-    sqlite3_bind_int(stmt, 1, project.id);
-    sqlite3_bind_text(stmt, 2, task.c_str(), -1, SQLITE_TRANSIENT);
-
-    rc = sqlite3_step(stmt);
-    if (rc != SQLITE_DONE) {
-        return;
-    }
-    sqlite3_finalize(stmt);
-}
-
-void remove_todo(sqlite3 *db, const todo todo)
-{
-    int rc;
-    const std::string sql = "DELETE FROM todos WHERE id=" + std::to_string(todo.id);
-    sqlite3_stmt *stmt;
-    rc = sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, NULL);
-    if (rc != SQLITE_OK) {
-        std::cout << "not prepare: " << sqlite3_errmsg(db) << std::endl;
-        getchar();
-        return;
-    }
-    
-    rc = sqlite3_step(stmt);
-    if (rc != SQLITE_DONE) {
-        std::cout << "not stepping: " << sqlite3_errmsg(db) << std::endl;
-        getchar();
-        return;
-    }
-
-    sqlite3_finalize(stmt);
-}
-
-
 int main_menu(std::vector<std::string> &buffer, std::vector<project> &projects, int screen_width)
 {
     int y = 0;
@@ -196,8 +31,8 @@ int main_menu(std::vector<std::string> &buffer, std::vector<project> &projects, 
         clear_buffer(buffer, screen_width);
         insert_into_buffer(buffer, 1, 1, "Projects:");
         insert_colored(buffer, 1, 2, "Use arrows to navigate the menu. Press ENTER to open a project, and press \'q\' to quit.", "\033[3;36m");
-        for (int i = 0; i < projects.size(); i++) {
-            if (y == i) {
+        for (size_t i = 0; i < projects.size(); i++) {
+            if (static_cast<size_t>(y) == i) {
                 insert_colored(buffer, 1, i + 3, projects[i].name, "\033[7;3m");
             } else {
                 insert_into_buffer(buffer, 1, i + 3, projects[i].name); 
@@ -221,7 +56,7 @@ int main_menu(std::vector<std::string> &buffer, std::vector<project> &projects, 
                     y--;
                     break;
                 case 66: // DOWN ARROW
-                    if (y == projects.size() - 1) break;
+                    if (static_cast<size_t>(y) == projects.size() - 1) break;
                     y++;
                     break;
             }
@@ -264,20 +99,6 @@ std::vector<fs::path> file_tree(const fs::path& path)
     return tree;
 }
 
-void add_tree_to_buffer(std::vector<std::string> &buffer, const std::vector<fs::path> tree,
-        int x, int y, int length, int highlight, int start_index)
-{
-    for (int i = start_index; i < tree.size(); i++) {
-        const fs::path path = tree[i];
-        if (y == buffer.size() - 1) break;
-        if (i == highlight) {
-            insert_colored(buffer, x, y, path.string().substr(length), "\033[7;3m");
-        } else {
-            insert_into_buffer(buffer, x, y, path.string().substr(length));
-        }
-        y++;
-    }
-}
 
 std::string get_git_status(project &project)
 {
@@ -433,9 +254,11 @@ std::string input_popup(std::vector<std::string> &buffer, const std::string mess
 void project_menu(std::vector<std::string> &buffer, int screen_width, int screen_height, project &project, sqlite3 *db)
 {
     int middle = screen_width / 2;
-    std::vector<std::string> left_buffer(screen_height, std::string(middle - 1, ' '));
+    int left_offset = screen_width - middle - middle;
+    int left_width = middle + left_offset - 1;
+    std::vector<std::string> left_buffer(screen_height, std::string(left_width, ' '));
     std::vector<std::string> right_buffer(screen_height, std::string(middle, ' '));
- 
+
     std::string git_status = get_git_status(project);
     std::vector<std::string> git_status_lines;
 
@@ -458,39 +281,81 @@ void project_menu(std::vector<std::string> &buffer, int screen_width, int screen
     int left_y = -1;
     int right_y = 0;
     int tree_offset = 5;
+    int info_offset = 0;
     int start_scrolling = 5;
-    int start_index = 0;
+    int tree_starting_index = 0;
+    int todo_starting_index = 0;
+    size_t todo_height = screen_height - 4 - 9;
     while (true) {
+        info_offset = 0;
         clear_buffer(buffer, screen_width);
-        clear_buffer(left_buffer, middle - 1);
+        clear_buffer(left_buffer, left_width);
         clear_buffer(right_buffer, middle);
 
         // LEFT BUFFER
         insert_colored(left_buffer, 1, 1, "Project Tree", x == 0 ? "\033[7;1m" : "\033[1m");
-        insert_colored(left_buffer, 1, 2, "Navigate using the arrow keys. Press ENTER over a file you wish to edit, and \'q\' to quit", "\033[3;36m");
-        draw_horizontal_line(left_buffer, 0, middle - 1, 3, '-');
+        std::string left_info = "Navigate using the arrow keys. Press ENTER over a file you wish to edit, and \'q\' to quit.";
+        if (left_info.length() < left_width - 1) {
+            insert_colored(left_buffer, 1, 2, left_info, "\033[3;36m", left_width - 1 - left_info.size());
+        } else {
+            size_t pos = 0;
+            while (left_info.size() > pos) {
+                std::string info = left_info.substr(pos, left_width - 1);
+                insert_colored(left_buffer, 1, 2 + info_offset, info, "\033[3;36m", left_width - 1 - info.size());
+                pos += left_width - 1;
+                info_offset++;
+            }
+            info_offset--;
+        }
+        draw_horizontal_line(left_buffer, 0, left_width, 3 + info_offset, '-');
         
-        if (buffer.size() - start_index > screen_height - tree_offset - 1 || start_index > left_y - start_scrolling) {
+        
+        if (buffer.size() - tree_starting_index > static_cast<size_t>(screen_height - tree_offset - info_offset - 1) 
+                || tree_starting_index > left_y - start_scrolling) {
             if (left_y > start_scrolling) {
-                start_index = left_y - start_scrolling;
+                tree_starting_index = left_y - start_scrolling;
             } else if (left_y == start_scrolling) {
-                start_index = 0;
+                tree_starting_index = 0;
             }
         }
 
-        insert_colored(left_buffer, 1, 4, project.name, left_y == -1  && x == 0 ? "\033[7;91m" : "\033[91m");
-        add_tree_to_buffer(left_buffer, tree, 1, tree_offset, project.path.length(), x == 0 ? left_y : -1, start_index);
+        insert_colored(left_buffer, 1, 4 + info_offset, project.name, left_y == -1  && x == 0 ? "\033[7;91m" : "\033[91m");
+        add_tree_to_buffer(left_buffer, tree, 1, tree_offset + info_offset, project.path.length(), x == 0 ? left_y : -1, tree_starting_index);
         
         // RIGHT BUFFER
+        info_offset = 0;
         insert_colored(right_buffer, 1, 1, "Todo List", x == 1 ? "\033[7;1m" : "\033[1m");
-        insert_colored(right_buffer, 1, 2, "When focusing this section press \'a\' to add a todo entry and ENTER to remove an entry.", "\033[3;36m");
-        draw_horizontal_line(right_buffer, 0, middle, 3, '-');
+        std::string right_info = "When focusing this section press \'a\' to add a todo entry and ENTER to remove an entry.";
+        int max_info_width = middle - 1;
+        if (right_info.size() < max_info_width) {
+            insert_colored(right_buffer, 1, 2, right_info, "\033[3;36m", max_info_width - right_info.size());
+        } else {
+            size_t pos = 0;
+            while(right_info.size() > pos) {
+                std::string info = right_info.substr(pos, max_info_width - 1);
+                insert_colored(right_buffer, 1, 2 + info_offset, info, "\033[3;36m", max_info_width - info.size());
+                pos += max_info_width - 1;
+                info_offset++;                
+            }
+            info_offset--;
+        }   
+
+        draw_horizontal_line(right_buffer, 0, middle, 3 + info_offset, '-');
         
-        for (int i = 0; i < todos.size(); i++) {
-            if (i == right_y) {
-                insert_colored(right_buffer, 1, 4 + i, todos[i].task, x == 1 ? "\033[7;3m" : "");
+        if (buffer.size() - todo_starting_index > todo_height
+                || todo_starting_index > right_y - start_scrolling) {
+            if (right_y > start_scrolling) {
+                todo_starting_index = right_y - start_scrolling;
+            } else if (right_y == start_scrolling) {
+                todo_starting_index = 0;
+            }
+        }
+
+        for (size_t i = 0; i + todo_starting_index < todos.size() && i < todo_height; i++) {
+            if (i == static_cast<size_t>(right_y)) {
+                insert_colored(right_buffer, 1, 4 + info_offset + i, todos[i + todo_starting_index].task, x == 1 ? "\033[7;3m" : "");
             } else {
-                insert_into_buffer(right_buffer, 1, 4 + i, todos[i].task);
+                insert_into_buffer(right_buffer, 1, 4 + info_offset + i, todos[i + todo_starting_index].task);
             }
         }
 
@@ -498,7 +363,7 @@ void project_menu(std::vector<std::string> &buffer, int screen_width, int screen
         insert_colored(right_buffer, 1, screen_height - 10, "Git status", "\033[1m");
         draw_horizontal_line(right_buffer, 1, middle, screen_height - 9, '-');
         
-        for (int i = 0; i < git_status_lines.size(); i++) {
+        for (size_t i = 0; i < git_status_lines.size(); i++) {
             if (i == 7 && git_status_lines.size() > 7) {
                 insert_into_buffer(right_buffer, 1, screen_height - 8 + i, "...");
                 break;
@@ -508,6 +373,7 @@ void project_menu(std::vector<std::string> &buffer, int screen_width, int screen
 
         combine_buffers(buffer, left_buffer, right_buffer);
         add_border(buffer, screen_width);
+
         draw_buffer(buffer);
         ch = getchar();
         if (ch == 27) {
@@ -529,11 +395,11 @@ void project_menu(std::vector<std::string> &buffer, int screen_width, int screen
                     break;
                 case 66: // DOWN ARROW
                     if (x == 0) { // left buffer movement
-                        if (left_y == tree.size() - 1) break;
+                        if (static_cast<size_t>(left_y) == tree.size() - 1) break;
                         left_y++;
                         break;
                     } // else right button movement
-                    if (right_y == todos.size() - 1) break;
+                    if (static_cast<size_t>(right_y) == todos.size() - 1) break;
                     right_y++;
                     break;
                 case 67: // RIGHT ARROW
@@ -559,20 +425,20 @@ void project_menu(std::vector<std::string> &buffer, int screen_width, int screen
             } else { // right buffer submit 
                 if (todos.size() == 0) continue;
 
-                int res = yes_or_no(buffer, "Are you sure", screen_width);
+                int res = yes_or_no(buffer, "Are you sure?", screen_width);
                 if (res == 0) {
                     remove_todo(db, todos[right_y]);
                     todos = get_todos(db, project);
+                    if (right_y != 0) right_y--;
                 }
             }
         } else if (ch == 'a' && x == 1) {
             std::string input = input_popup(buffer, "Enter a task:", screen_width);
+            if (input == "") continue;
             add_todo(db, project, input);
             todos = get_todos(db, project);
         } else if (ch == 'c') {
-            clear_screen();
-            std::cout << project.path << std::endl;
-            exit(0);
+            exit_program(db, project.path, 0);
         }
     }
 }
@@ -580,31 +446,24 @@ void project_menu(std::vector<std::string> &buffer, int screen_width, int screen
 int main()
 {
     sqlite3 *db;
-    char *zErrMsg = 0;
     int rc;
-    
+
     rc = sqlite3_open("projects.db", &db);
-
+    
     if (rc) {
-        fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(db));
+        std::cout << "Can't open database: " << sqlite3_errmsg(db) << std::endl;
         return -1;
     }
 
-    rc = setup_database(db);
-    if (rc) {
-        fprintf(stderr, "Failed to setup database\n");
-        return -1;
-    }
+    setup_database(db);
     
     std::vector<project> projects = {};
     locate_projects(db, &projects);
     
-    termios oldt;
-    set_raw_mode(oldt);
-
+    set_raw_mode();
 
     int screen_width, screen_height;
-    get_console_size(screen_width, screen_height);
+    get_console_size(screen_width, screen_height);  
     clear_screen();
     
     std::vector<std::string> buffer(screen_height, std::string(screen_width, ' '));
@@ -618,6 +477,6 @@ int main()
         project_menu(buffer, screen_width, screen_height, projects[index], db);
     }
     clear_screen();
-    reset_raw_mode(oldt);
+    reset_raw_mode();
     sqlite3_close(db);  
 }

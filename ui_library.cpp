@@ -1,6 +1,10 @@
 #include "ui_library.h"
 #include <unistd.h>
+#include <filesystem>
 
+
+termios OLDT;
+bool HAS_OLDT = false;
 
 void set_cursor_pos(int x, int y)
 {
@@ -35,20 +39,33 @@ void clear_buffer(std::vector<std::string> &buffer, int width)
     }
 }
 
-void insert_into_buffer(std::vector<std::string> &buffer, int x, int y, const std::string message)
+void insert_into_buffer(std::vector<std::string> &buffer, int x, int y, const std::string message, bool allow_overflow)
 {
-    for (size_t i = 0; i < message.length(); ++i) {
+    size_t i;
+    for (i = 0; i < message.length() && x + i < buffer[y].size(); ++i) {
         buffer[y][x + i] = message[i];
     }
+    
+    if (i < message.length() && allow_overflow) {
+        for (; i < message.length(); ++i) {
+            buffer[y].push_back(message[i]);
+        }
+    }
+
 }
 
-int insert_colored(std::vector<std::string> &buffer, int x, int y, const std::string message, const std::string colors)
+int insert_colored(std::vector<std::string> &buffer, int x, int y, const std::string message, const std::string colors, int diff)
 {
     const std::string end("\033[0m");
-    insert_into_buffer(buffer, x, y, colors + message + end);
-
-    for (int i = 0; i < colors.length() + end.length(); i++) {
-        buffer[y].push_back(' ');
+    insert_into_buffer(buffer, x, y, colors + message + end, true);
+    if (diff == -1) {
+        for (size_t i = 0; i < colors.length() + end.length(); i++) {
+            buffer[y].push_back(' ');
+        }
+    } else {
+        for (size_t i = 0; i < static_cast<size_t>(diff) && i < colors.length() + end.length(); i++) {
+            buffer[y].push_back(' ');
+        }
     }
 
     return colors.length() + end.length();
@@ -56,14 +73,13 @@ int insert_colored(std::vector<std::string> &buffer, int x, int y, const std::st
 
 void combine_buffers(std::vector<std::string> &main, std::vector<std::string> &left, std::vector<std::string> &right)
 {
-    for (int i = 0; i < main.size(); i++) {
+    for (size_t i = 0; i < main.size(); i++) {
         main[i] = left[i] + "|" + right[i];
     }
 }
 
 void add_border(std::vector<std::string> &buffer, int width)
 {
-    // ONLY USE AFTER ALL THE CHANGES TO THE BUFFER HAVE BEEN MADE
     for (size_t i = 0; i < buffer.size(); i++) {
         if (i == 0) {
             buffer[i] = "";
@@ -100,27 +116,47 @@ void draw_horizontal_line(std::vector<std::string> &buffer, int x1, int x2, int 
         std::swap(x1, x2);
     }
 
-    if (y < 0 || y >= buffer.size()) {
+    if (y < 0 || static_cast<size_t>(y) >= buffer.size()) {
         return;
     }
 
     for (int x = x1; x <= x2; x++) {
-        if (x >= 0 && x < buffer[y].length()) {
+        if (x >= 0 && static_cast<size_t>(x) < buffer[y].length()) {
             buffer[y][x] = character;
         }
     }
 }
 
-void set_raw_mode(termios &oldt)
+void add_tree_to_buffer(std::vector<std::string> &buffer, const std::vector<fs::path> tree,
+        int x, int y, int length, int highlight, int start_index)
 {
-    termios newt;
-    tcgetattr(STDIN_FILENO, &oldt);
-    newt = oldt;
-    newt.c_lflag &= ~(ICANON | ECHO);
-    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+    for (size_t i = start_index; i < tree.size(); i++) {
+        const fs::path path = tree[i];
+        if (static_cast<size_t>(y) == buffer.size() - 1) break;
+        if (i == static_cast<size_t>(highlight)) {
+            insert_colored(buffer, x, y, path.string().substr(length), "\033[7;3m");
+        } else {
+            insert_into_buffer(buffer, x, y, path.string().substr(length));
+        }
+        y++;
+    }
 }
 
-void reset_raw_mode(const termios &oldt)
+void set_raw_mode()
 {
-    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+    termios newt;
+    tcgetattr(STDIN_FILENO, &OLDT);
+    newt = OLDT;
+    newt.c_lflag &= ~(ICANON | ECHO);
+    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+    HAS_OLDT = true;
 }
+
+void reset_raw_mode()
+{
+    if (HAS_OLDT) {
+        tcsetattr(STDIN_FILENO, TCSANOW, &OLDT);
+    }
+}
+
+
