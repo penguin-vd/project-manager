@@ -28,81 +28,6 @@ void locate_projects(sqlite3 *db, std::vector<project> *projects) {
     }
 }
 
-int main_menu(sqlite3 *db, std::vector<std::string> &buffer,
-              std::vector<project> &projects, int screen_width) {
-    int y = 0;
-    char ch;
-    std::vector<int> projects_with_todo;
-    for (size_t i = 0; i < projects.size(); i++) {
-        if (!get_todos(db, projects[i]).empty()) {
-            projects_with_todo.push_back(projects[i].id);
-        }
-    }
-
-    while (true) {
-        clear_screen();
-        clear_buffer(buffer, screen_width);
-        insert_into_buffer(buffer, 1, 1, "Projects:");
-        insert_colored(buffer, 1, 2,
-                       "Use arrows to navigate the menu. Press ENTER to open a "
-                       "project, and press \'q\' to quit.",
-                       "\033[3;36m");
-
-        draw_horizontal_line(buffer, 0, screen_width, 3, '-');
-        for (size_t i = 0; i < projects.size(); i++) {
-            bool has_todo = false;
-            bool is_selected = static_cast<size_t>(y) == i;
-            for (size_t x = 0; x < projects_with_todo.size(); x++) {
-                if (projects_with_todo[x] == projects[i].id) {
-                    has_todo = true;
-                    break;
-                }
-            }
-
-            if (has_todo && is_selected) {
-                insert_colored(buffer, 1, i + 4, projects[i].name,
-                               "\033[91;7;3m");
-            } else if (has_todo) {
-                insert_colored(buffer, 1, i + 4, projects[i].name, "\033[91m");
-            } else if (is_selected) {
-                insert_colored(buffer, 1, i + 4, projects[i].name, "\033[7;3m");
-
-            } else {
-                insert_into_buffer(buffer, 1, i + 4, projects[i].name);
-            }
-        }
-
-        add_border(buffer, screen_width);
-        draw_buffer(buffer);
-        set_cursor_pos(2, y + 5);
-        ch = getchar();
-        if (ch == 27) {
-            ch = getchar();
-            if (ch != 91) {
-                continue;
-            }
-
-            ch = getchar();
-            switch (ch) {
-                case 65:  // UP ARROW
-                    if (y == 0) break;
-                    y--;
-                    break;
-                case 66:  // DOWN ARROW
-                    if (static_cast<size_t>(y) == projects.size() - 1) break;
-                    y++;
-                    break;
-            }
-        } else if (ch == 'q') {
-            y = -1;
-            break;
-        } else if (ch == '\n') {
-            break;
-        }
-    }
-    return y;
-}
-
 std::vector<fs::path> file_tree(const fs::path &path) {
     std::vector<fs::path> tree;
     std::vector<std::string> exclude_elements = {
@@ -550,6 +475,82 @@ void project_menu(std::vector<std::string> &buffer, int screen_width,
     }
 }
 
+int main_menu(sqlite3 *db, std::vector<std::string> &buffer,
+              std::vector<project> &projects, int screen_width, int screen_height) {
+    int y = 0;
+    char ch;
+    std::vector<int> projects_with_todo;
+    for (size_t i = 0; i < projects.size(); i++) {
+        if (!get_todos(db, projects[i]).empty()) {
+            projects_with_todo.push_back(projects[i].id);
+        }
+    }
+
+    while (true) {
+        clear_screen();
+        clear_buffer(buffer, screen_width);
+        insert_into_buffer(buffer, 1, 1, "Projects:");
+        insert_colored(buffer, 1, 2,
+                       "Use arrows to navigate the menu. Press ENTER to open a "
+                       "project, and press \'q\' to quit.",
+                       "\033[3;36m");
+
+        draw_horizontal_line(buffer, 0, screen_width, 3, '-');
+        for (size_t i = 0; i < projects.size(); i++) {
+            bool has_todo = false;
+            bool is_selected = static_cast<size_t>(y) == i;
+            for (size_t x = 0; x < projects_with_todo.size(); x++) {
+                if (projects_with_todo[x] == projects[i].id) {
+                    has_todo = true;
+                    break;
+                }
+            }
+
+            if (has_todo && is_selected) {
+                insert_colored(buffer, 1, i + 4, projects[i].name,
+                               "\033[91;7;3m");
+            } else if (has_todo) {
+                insert_colored(buffer, 1, i + 4, projects[i].name, "\033[91m");
+            } else if (is_selected) {
+                insert_colored(buffer, 1, i + 4, projects[i].name, "\033[7;3m");
+
+            } else {
+                insert_into_buffer(buffer, 1, i + 4, projects[i].name);
+            }
+        }
+
+        add_border(buffer, screen_width);
+        draw_buffer(buffer);
+        set_cursor_pos(2, y + 5);
+        ch = getchar();
+        if (ch == 27) {
+            ch = getchar();
+            if (ch != 91) {
+                continue;
+            }
+
+            ch = getchar();
+            switch (ch) {
+                case 65:  // UP ARROW
+                    if (y == 0) break;
+                    y--;
+                    break;
+                case 66:  // DOWN ARROW
+                    if (static_cast<size_t>(y) == projects.size() - 1) break;
+                    y++;
+                    break;
+            }
+        } else if (ch == 'q') {
+            y = -1;
+            break;
+        } else if (ch == '\n') {
+            project_menu(buffer, screen_width, screen_height, projects[y], db);
+        }
+    }
+    return y;
+}
+
+
 int main() {
     sqlite3 *db;
     int rc;
@@ -581,12 +582,11 @@ int main() {
                                     std::string(screen_width, ' '));
     clear_buffer(buffer, screen_width);
     while (true) {
-        int index = main_menu(db, buffer, projects, screen_width);
+        int index = main_menu(db, buffer, projects, screen_width, screen_height);
 
         if (index == -1) {
             break;
         }
-        project_menu(buffer, screen_width, screen_height, projects[index], db);
     }
     clear_screen();
     reset_raw_mode();
