@@ -20,7 +20,10 @@ Then this **Project Manager** is the perfect fit for you!
 ## Usage
 
 Currently, this tool is tailored for Linux users and has been tested on a Manjaro machine. 
-To get started, you have two options:
+To get started, you will need a projects directory.
+The program will look for an envirioment variable called 'PROJECTS_DIR' if not found it will default to the 'HOME' directory.
+The program will also look for an envirioment variable call 'PROJECTS_DB' if not found it will create one at the location it is ran.
+For running the program there are 2 ways:
 
 1. **Run the Shell Script**
     ```bash

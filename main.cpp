@@ -1,30 +1,44 @@
+#include <algorithm>
+
 #include "database.h"
 #include "ui_library.h"
 
 namespace fs = std::filesystem;
 
 void locate_projects(sqlite3 *db, std::vector<project> *projects) {
-    std::string home_dir = std::getenv("HOME");
-    if (home_dir.empty()) {
-        exit_program(db, "HOME directory not found");
+    std::string project_dir = std::getenv("PROJECTS_DIR");
+
+    if (project_dir.empty()) {
+        std::string home_dir = std::getenv("HOME");
+        if (home_dir.empty()) {
+            exit_program(db, "HOME directory not found");
+        }
+        project_dir = home_dir;
     }
 
-    fs::path home_path(home_dir + "/Documents");
-    int id = 0;
+    fs::path home_path(project_dir);
     for (const auto &entry : fs::recursive_directory_iterator(home_path)) {
         if (entry.is_directory() && entry.path().filename() == ".git") {
             const auto path = entry.path().parent_path();
             insert_projects(db, path.filename(), path);
-            projects->push_back({id, path.filename(), path});
-            id++;
+            project project = {-1, path.filename(), path};
+            project.id = get_project_id(db, project);
+            projects->push_back(project);
         }
     }
 }
 
-int main_menu(std::vector<std::string> &buffer, std::vector<project> &projects,
-              int screen_width) {
+int main_menu(sqlite3 *db, std::vector<std::string> &buffer,
+              std::vector<project> &projects, int screen_width) {
     int y = 0;
     char ch;
+    std::vector<int> projects_with_todo;
+    for (size_t i = 0; i < projects.size(); i++) {
+        if (!get_todos(db, projects[i]).empty()) {
+            projects_with_todo.push_back(projects[i].id);
+        }
+    }
+
     while (true) {
         clear_screen();
         clear_buffer(buffer, screen_width);
@@ -33,17 +47,34 @@ int main_menu(std::vector<std::string> &buffer, std::vector<project> &projects,
                        "Use arrows to navigate the menu. Press ENTER to open a "
                        "project, and press \'q\' to quit.",
                        "\033[3;36m");
+
+        draw_horizontal_line(buffer, 0, screen_width, 3, '-');
         for (size_t i = 0; i < projects.size(); i++) {
-            if (static_cast<size_t>(y) == i) {
-                insert_colored(buffer, 1, i + 3, projects[i].name, "\033[7;3m");
+            bool has_todo = false;
+            bool is_selected = static_cast<size_t>(y) == i;
+            for (size_t x = 0; x < projects_with_todo.size(); x++) {
+                if (projects_with_todo[x] == projects[i].id) {
+                    has_todo = true;
+                    break;
+                }
+            }
+
+            if (has_todo && is_selected) {
+                insert_colored(buffer, 1, i + 4, projects[i].name,
+                               "\033[91;7;3m");
+            } else if (has_todo) {
+                insert_colored(buffer, 1, i + 4, projects[i].name, "\033[91m");
+            } else if (is_selected) {
+                insert_colored(buffer, 1, i + 4, projects[i].name, "\033[7;3m");
+
             } else {
-                insert_into_buffer(buffer, 1, i + 3, projects[i].name);
+                insert_into_buffer(buffer, 1, i + 4, projects[i].name);
             }
         }
 
         add_border(buffer, screen_width);
         draw_buffer(buffer);
-        set_cursor_pos(2, y + 4);
+        set_cursor_pos(2, y + 5);
         ch = getchar();
         if (ch == 27) {
             ch = getchar();
@@ -116,10 +147,10 @@ std::string get_git_status(project &project) {
     return result;
 }
 
-int yes_or_no(std::vector<std::string> &buffer, const std::string message,
+int view_todo(std::vector<std::string> &buffer, const todo todo,
               int screen_width) {
     int width = 48;
-    int height = 8;
+    int height = 9;
     std::vector<std::string> center_buffer(height, std::string(width, ' '));
     int start_x = (screen_width / 2) - (width / 2);
     int start_y = (buffer.size() / 2) - (height / 2);
@@ -129,27 +160,66 @@ int yes_or_no(std::vector<std::string> &buffer, const std::string message,
 
     int middle = width / 2;
     int hh_width = middle / 2;
-    int message_pos = middle - (message.length() / 2);
     int yes_pos = hh_width - 1;
     int no_pos = middle + hh_width - 2;
+    int task_padding = 16;
+    size_t max_width_task = width - task_padding;
     while (true) {
+        std::vector<int> todo_space;
         clear_buffer(center_buffer, width);
-        int message_space =
-            insert_colored(center_buffer, message_pos, 2, message, "\033[7;3m");
-        int choice_space = insert_colored(center_buffer, yes_pos, 4, "Yes",
+        size_t size = todo.task.size();
+        if (size < max_width_task) {
+            int message_pos = middle - (size / 2);
+            int diff =
+                11 -
+                std::max(0,
+                         ((int)(size - 27) / 2) +
+                             1);  // 27,28 = 10, 29,30 = 9, 31,32 = 8 (IDK WHY)
+            todo_space.push_back(insert_colored(center_buffer, message_pos, 2,
+                                                todo.task, "\033[1;35m", diff));
+        } else {
+            size_t pos = 0;
+            int task_offset = 0;
+            const std::string task = todo.task;
+            while (size > pos) {
+                std::string info = task.substr(pos, max_width_task);
+                int diff =
+                    11 -
+                    std::max(
+                        0,
+                        ((int)(info.size() - 27) / 2) +
+                            1);  // 27,28 = 10, 29,30 = 9, 31,32 = 8 (IDK WHY)
+                int message_pos = middle - (info.size() / 2);
+                int space =
+                    insert_colored(center_buffer, message_pos, 2 + task_offset,
+                                   info, "\033[1;35m", diff);
+                todo_space.push_back(space);
+                pos += max_width_task;
+                task_offset++;
+            }
+            task_offset--;
+        }
+
+        draw_horizontal_line(center_buffer, 0, width, 4, '-');
+
+        int choice_space = insert_colored(center_buffer, yes_pos, 6, "Delete",
                                           y_or_n == 0 ? "\033[7;3m" : "");
-        choice_space += insert_colored(center_buffer, no_pos + choice_space, 4,
-                                       "No", y_or_n == 1 ? "\033[7;3m" : "");
+        choice_space +=
+            insert_colored(center_buffer, no_pos + choice_space, 6, "Cancel",
+                           y_or_n == 1 ? "\033[7;3m" : "", 8);
 
         add_border(center_buffer, width);
         for (int y = 0; y < height; y++) {
             insert_into_buffer(buffer, start_x, start_y + y, center_buffer[y]);
         }
 
-        int pos = start_x + width;
-        buffer[start_y + 2].insert(pos + message_space,
-                                   std::string(message_space, ' '));
-        buffer[start_y + 4].insert(pos + choice_space + 1,
+        int pos = start_x + width + 1;
+
+        for (size_t i = 0; i < todo_space.size(); i++) {
+            buffer[start_y + 2 + i].insert(pos + todo_space[i],
+                                           std::string(todo_space[i], ' '));
+        }
+        buffer[start_y + 6].insert(pos + choice_space + 1,
                                    std::string(choice_space, ' '));
 
         clear_screen();
@@ -176,8 +246,11 @@ int yes_or_no(std::vector<std::string> &buffer, const std::string message,
         } else if (ch == '\n') {
             break;
         }
-        buffer[start_y + 2].replace(pos + message_space, message_space, "");
-        buffer[start_y + 4].replace(pos + choice_space, choice_space, "");
+        for (size_t i = 0; i < todo_space.size(); i++) {
+            buffer[start_y + 2 + i].replace(pos + todo_space[i], todo_space[i],
+                                            "");
+        }
+        buffer[start_y + 6].replace(pos + choice_space, choice_space, "");
     }
     clear_buffer(buffer, screen_width);
     return y_or_n;
@@ -200,6 +273,7 @@ std::string input_popup(std::vector<std::string> &buffer,
     int input_pos = 6;
     while (true) {
         clear_buffer(center_buffer, width);
+        clear_buffer(input_box, 38);
 
         int message_space =
             insert_colored(center_buffer, message_pos, 2, message, "\033[7;3m");
@@ -207,12 +281,12 @@ std::string input_popup(std::vector<std::string> &buffer,
         bool longer = input_buffer.length() > 36;
         insert_into_buffer(
             input_box, 1, 1,
-            input_buffer.substr(0, longer ? 36 : input_buffer.length()));
+            input_buffer.substr(0, longer ? 36 : input_buffer.size()));
 
         if (longer) {
             insert_into_buffer(
                 input_box, 1, 2,
-                input_buffer.substr(36, input_buffer.length() - 36));
+                input_buffer.substr(36, input_buffer.size() - 36));
         }
 
         add_border(input_box, 38);
@@ -244,7 +318,9 @@ std::string input_popup(std::vector<std::string> &buffer,
             ch = getchar();
             ch = getchar();
         } else if (ch == 127) {
-            input_buffer.pop_back();
+            if (!input_buffer.empty()) {
+                input_buffer.pop_back();
+            }
         } else if (ch == '\n') {
             break;
         } else if (ch >= ' ' && ch <= '~') {
@@ -261,8 +337,8 @@ std::string input_popup(std::vector<std::string> &buffer,
 void project_menu(std::vector<std::string> &buffer, int screen_width,
                   int screen_height, project &project, sqlite3 *db) {
     int middle = screen_width / 2;
-    int left_offset = screen_width - middle - middle;
-    int left_width = middle + left_offset - 1;
+    size_t left_offset = screen_width - middle - middle;
+    size_t left_width = middle + left_offset - 1;
     std::vector<std::string> left_buffer(screen_height,
                                          std::string(left_width, ' '));
     std::vector<std::string> right_buffer(screen_height,
@@ -346,7 +422,7 @@ void project_menu(std::vector<std::string> &buffer, int screen_width,
         std::string right_info =
             "When focusing this section press \'a\' to add a todo entry and "
             "ENTER to remove an entry.";
-        int max_info_width = middle - 1;
+        size_t max_info_width = middle - 1;
         if (right_info.size() < max_info_width) {
             insert_colored(right_buffer, 1, 2, right_info, "\033[3;36m",
                            max_info_width - right_info.size());
@@ -375,7 +451,7 @@ void project_menu(std::vector<std::string> &buffer, int screen_width,
 
         for (size_t i = 0;
              i + todo_starting_index < todos.size() && i < todo_height; i++) {
-            if (i == static_cast<size_t>(right_y)) {
+            if (i + todo_starting_index == static_cast<size_t>(right_y)) {
                 insert_colored(right_buffer, 1, 4 + info_offset + i,
                                todos[i + todo_starting_index].task,
                                x == 1 ? "\033[7;3m" : "");
@@ -455,7 +531,7 @@ void project_menu(std::vector<std::string> &buffer, int screen_width,
             } else {  // right buffer submit
                 if (todos.size() == 0) continue;
 
-                int res = yes_or_no(buffer, "Are you sure?", screen_width);
+                int res = view_todo(buffer, todos[right_y], screen_width);
                 if (res == 0) {
                     remove_todo(db, todos[right_y]);
                     todos = get_todos(db, project);
@@ -478,7 +554,12 @@ int main() {
     sqlite3 *db;
     int rc;
 
-    rc = sqlite3_open("projects.db", &db);
+    std::string db_location = std::getenv("PROJECTS_DB");
+    if (db_location.empty()) {
+        db_location = "projects.db";
+    }
+
+    rc = sqlite3_open(db_location.c_str(), &db);
 
     if (rc) {
         std::cout << "Can't open database: " << sqlite3_errmsg(db) << std::endl;
@@ -500,7 +581,7 @@ int main() {
                                     std::string(screen_width, ' '));
     clear_buffer(buffer, screen_width);
     while (true) {
-        int index = main_menu(buffer, projects, screen_width);
+        int index = main_menu(db, buffer, projects, screen_width);
 
         if (index == -1) {
             break;
