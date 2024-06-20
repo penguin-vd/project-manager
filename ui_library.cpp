@@ -1,5 +1,7 @@
 #include "ui_library.h"
+
 #include <unistd.h>
+
 #include <filesystem>
 
 termios OLDT;
@@ -11,6 +13,8 @@ void set_cursor_pos(int x, int y) {
 }
 
 void clear_screen() { std::cout << "\033[2J\033[1;1H"; }
+void enable_cursor() { std::cout << "\033[?25h"; }
+void disable_cursor() { std::cout << "\033[?25l"; }
 
 void get_console_size(int &width, int &height) {
     struct winsize w;
@@ -19,7 +23,8 @@ void get_console_size(int &width, int &height) {
     height = w.ws_row;
 }
 
-void draw_buffer(const std::vector<std::string> &buffer, const std::vector<styling> &styling) {
+void draw_buffer(const std::vector<std::string> &buffer,
+                 const std::vector<styling> &styling) {
     set_cursor_pos(1, 1);
     for (size_t y = 0; y < buffer.size(); y++) {
         bool has_style = false;
@@ -29,9 +34,8 @@ void draw_buffer(const std::vector<std::string> &buffer, const std::vector<styli
             if (style.y != y) continue;
             has_style = true;
             new_buffer.insert(style.x + offset, style.styling);
-            offset+= style.styling.size();
+            offset += style.styling.size();
         }
-
 
         if (!has_style) {
             std::cout << buffer[y];
@@ -47,24 +51,27 @@ void clear_buffer(std::vector<std::string> &buffer, int width) {
     }
 }
 
-void insert_into_buffer(std::vector<std::string> &buffer, int x, int y, const std::string message) {
+void insert_into_buffer(std::vector<std::string> &buffer, int x, int y,
+                        const std::string message) {
     for (size_t i = 0; i < message.length() && x + i < buffer[y].size(); ++i) {
         buffer[y][x + i] = message[i];
     }
 }
 
-void insert_colored(std::vector<std::string> &buffer, std::vector<styling> &styling, int x, int y, const std::string message, const std::string colors) {
+void insert_colored(std::vector<std::string> &buffer,
+                    std::vector<styling> &styling, int x, int y,
+                    const std::string message, const std::string colors) {
     insert_into_buffer(buffer, x, y, message);
     styling.push_back({static_cast<size_t>(x), static_cast<size_t>(y), colors});
     styling.push_back({x + message.size(), static_cast<size_t>(y), END_STYLE});
 }
 
 std::vector<styling> combine_buffers(std::vector<std::string> &main,
-                     std::vector<std::string> &left,
-                     std::vector<styling> &left_style,
-                     std::vector<std::string> &right,
-                     std::vector<styling> &right_style,
-                     int left_width) {
+                                     std::vector<std::string> &left,
+                                     std::vector<styling> &left_style,
+                                     std::vector<std::string> &right,
+                                     std::vector<styling> &right_style,
+                                     int left_width) {
     for (size_t i = 0; i < main.size(); i++) {
         main[i] = left[i] + "|" + right[i];
     }
@@ -126,7 +133,8 @@ void draw_horizontal_line(std::vector<std::string> &buffer, int x1, int x2,
     }
 }
 
-void add_tree_to_buffer(std::vector<std::string> &buffer, std::vector<styling> &styling,
+void add_tree_to_buffer(std::vector<std::string> &buffer,
+                        std::vector<styling> &styling,
                         const std::vector<fs::path> tree, int x, int y,
                         int length, int highlight, int start_index) {
     for (size_t i = start_index; i < tree.size(); i++) {

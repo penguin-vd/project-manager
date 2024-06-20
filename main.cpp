@@ -41,7 +41,7 @@ int main() {
         return -1;
     }
 
-    std::cout << "\033[?25l"; // make cursor invisible
+    disable_cursor();
     setup_database(db);
 
     std::vector<project> projects = {};
@@ -54,10 +54,10 @@ int main() {
 
     std::vector<std::string> buffer(screen_height,
                                     std::string(screen_width, ' '));
-    
+
     main_menu(db, buffer, projects, screen_width, screen_height);
 
-    std::cout << "\033[?25h"; // reenable cursor
+    enable_cursor();
     clear_screen();
     reset_raw_mode();
     sqlite3_close(db);
