@@ -1,7 +1,5 @@
 #include "database.h"
-
 #include <iostream>
-
 #include "ui_library.h"
 
 void exit_program(sqlite3 *db, const std::string err_msg, int exitcode) {
@@ -9,6 +7,7 @@ void exit_program(sqlite3 *db, const std::string err_msg, int exitcode) {
     sqlite3_close(db);
     reset_raw_mode();
     set_cursor_pos(1, 1);
+    std::cout << "\033[?25h"; // reenable cursor
     std::cout << err_msg << std::endl;
     exit(exitcode);
 }
