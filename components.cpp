@@ -1,4 +1,5 @@
 #include "components.h"
+
 #include <cstdlib>
 
 std::string get_git_status(project &project) {
@@ -41,7 +42,6 @@ void main_menu(sqlite3 *db, std::vector<std::string> &buffer,
             clear_buffer(buffer, screen_width);
         }
         style_buffer.clear();
-        
 
         insert_into_buffer(buffer, 1, 1, "Projects:");
         insert_colored(buffer, style_buffer, 1, 2,
@@ -169,7 +169,8 @@ void project_menu(sqlite3 *db, std::vector<std::string> &buffer,
             middle = screen_width / 2;
             left_offset = screen_width - middle - middle;
             left_width = middle + left_offset - 1;
-            left_buffer = std::vector(screen_height, std::string(left_width, ' '));
+            left_buffer =
+                std::vector(screen_height, std::string(left_width, ' '));
             right_buffer = std::vector(screen_height, std::string(middle, ' '));
             buffer = std::vector(screen_height, std::string(screen_width, ' '));
         } else {
@@ -179,7 +180,6 @@ void project_menu(sqlite3 *db, std::vector<std::string> &buffer,
         }
         left_style_buffer.clear();
         right_style_buffer.clear();
-
 
         // LEFT BUFFER
         insert_colored(left_buffer, left_style_buffer, 1, 1, "Project Tree",
@@ -289,7 +289,7 @@ void project_menu(sqlite3 *db, std::vector<std::string> &buffer,
         add_border(buffer, screen_width);
 
         draw_buffer(buffer, style_buffer);
-        
+
         if (!wait_for_input()) continue;
 
         ch = getchar();
@@ -479,7 +479,7 @@ int choice_popup(std::vector<std::string> &buffer, const std::string message,
 
         clear_screen();
         draw_buffer(buffer, style_buffer);
-    
+
         if (!wait_for_input()) continue;
 
         ch = getchar();
@@ -579,9 +579,9 @@ std::string input_popup(std::vector<std::string> &buffer,
         int cursor_x = start_x + input_pos + ((input_buffer.length()) % 36) + 1;
 
         set_cursor_pos(cursor_x + 1, cursor_y + 1);
-        
+
         if (!wait_for_input()) continue;
-            
+
         ch = getchar();
         if (ch == 27) {
             if (!kbhit()) {

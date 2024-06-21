@@ -1,7 +1,9 @@
 #include "ui_library.h"
-#include <unistd.h>
-#include <filesystem>
+
 #include <fcntl.h>
+#include <unistd.h>
+
+#include <filesystem>
 
 termios OLDT;
 bool HAS_OLDT = false;
@@ -24,12 +26,12 @@ void get_console_size(int &width, int &height) {
 
 bool kbhit() {
     int flags = fcntl(STDIN_FILENO, F_GETFL, 0);
-    fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK);   
-    
+    fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK);
+
     int ch = getchar();
 
     fcntl(STDIN_FILENO, F_SETFL, flags);
-    
+
     if (ch != EOF) {
         ungetc(ch, stdin);
         return true;
@@ -39,7 +41,7 @@ bool kbhit() {
 }
 
 bool wait_for_input() {
-    timeval tv = { 0L, 25000L };
+    timeval tv = {0L, 25000L};
     fd_set fds;
     FD_ZERO(&fds);
     FD_SET(STDIN_FILENO, &fds);
