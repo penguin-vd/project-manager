@@ -1,8 +1,7 @@
 #include "ui_library.h"
-
 #include <unistd.h>
-
 #include <filesystem>
+#include <fcntl.h>
 
 termios OLDT;
 bool HAS_OLDT = false;
@@ -21,6 +20,31 @@ void get_console_size(int &width, int &height) {
     ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
     width = w.ws_col;
     height = w.ws_row;
+}
+
+bool kbhit() {
+    int flags = fcntl(STDIN_FILENO, F_GETFL, 0);
+    fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK);   
+    
+    int ch = getchar();
+
+    fcntl(STDIN_FILENO, F_SETFL, flags);
+    
+    if (ch != EOF) {
+        ungetc(ch, stdin);
+        return true;
+    }
+
+    return false;
+}
+
+bool wait_for_input() {
+    timeval tv = { 0L, 25000L };
+    fd_set fds;
+    FD_ZERO(&fds);
+    FD_SET(STDIN_FILENO, &fds);
+    fflush(stdout);
+    return select(STDIN_FILENO + 1, &fds, NULL, NULL, &tv) > 0;
 }
 
 void draw_buffer(const std::vector<std::string> &buffer,

@@ -23,6 +23,8 @@ void clear_screen();
 void enable_cursor();
 void disable_cursor();
 void get_console_size(int &width, int &height);
+bool wait_for_input();
+bool kbhit();
 void draw_buffer(const std::vector<std::string> &buffer,
                  const std::vector<styling> &styling);
 void clear_buffer(std::vector<std::string> &buffer, int width);

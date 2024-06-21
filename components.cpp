@@ -1,4 +1,5 @@
 #include "components.h"
+#include <cstdlib>
 
 std::string get_git_status(project &project) {
     chdir(project.path.c_str());
@@ -30,8 +31,18 @@ void main_menu(sqlite3 *db, std::vector<std::string> &buffer,
 
     while (true) {
         clear_screen();
-        clear_buffer(buffer, screen_width);
+        int temp_width, temp_height;
+        get_console_size(temp_width, temp_height);
+        if (temp_width != screen_width || temp_height != screen_height) {
+            screen_width = temp_width;
+            screen_height = temp_height;
+            buffer = std::vector(screen_height, std::string(screen_width, ' '));
+        } else {
+            clear_buffer(buffer, screen_width);
+        }
         style_buffer.clear();
+        
+
         insert_into_buffer(buffer, 1, 1, "Projects:");
         insert_colored(buffer, style_buffer, 1, 2,
                        "Use arrows to navigate the menu. Press ENTER to open a "
@@ -66,6 +77,8 @@ void main_menu(sqlite3 *db, std::vector<std::string> &buffer,
 
         add_border(buffer, screen_width);
         draw_buffer(buffer, style_buffer);
+        if (!wait_for_input()) continue;
+
         ch = getchar();
         if (ch == 27) {
             ch = getchar();
@@ -147,11 +160,26 @@ void project_menu(sqlite3 *db, std::vector<std::string> &buffer,
     size_t todo_height = screen_height - 4 - 9;
     while (true) {
         info_offset = 0;
-        clear_buffer(buffer, screen_width);
-        clear_buffer(left_buffer, left_width);
+        int temp_width, temp_height;
+        get_console_size(temp_width, temp_height);
+        if (temp_width != screen_width || temp_height != screen_height) {
+            screen_width = temp_width;
+            screen_height = temp_height;
+            todo_height = screen_height - 4 - 9;
+            middle = screen_width / 2;
+            left_offset = screen_width - middle - middle;
+            left_width = middle + left_offset - 1;
+            left_buffer = std::vector(screen_height, std::string(left_width, ' '));
+            right_buffer = std::vector(screen_height, std::string(middle, ' '));
+            buffer = std::vector(screen_height, std::string(screen_width, ' '));
+        } else {
+            clear_buffer(buffer, screen_width);
+            clear_buffer(left_buffer, left_width);
+            clear_buffer(right_buffer, middle);
+        }
         left_style_buffer.clear();
-        clear_buffer(right_buffer, middle);
         right_style_buffer.clear();
+
 
         // LEFT BUFFER
         insert_colored(left_buffer, left_style_buffer, 1, 1, "Project Tree",
@@ -261,6 +289,8 @@ void project_menu(sqlite3 *db, std::vector<std::string> &buffer,
         add_border(buffer, screen_width);
 
         draw_buffer(buffer, style_buffer);
+        
+        if (!wait_for_input()) continue;
 
         ch = getchar();
         if (ch == 27) {
@@ -399,6 +429,14 @@ int choice_popup(std::vector<std::string> &buffer, const std::string message,
     int task_padding = 16;
     size_t max_width_task = width - task_padding;
     while (true) {
+        int temp_width, temp_height;
+        get_console_size(temp_width, temp_height);
+        if (temp_width != screen_width) {
+            screen_width = temp_width;
+            buffer = std::vector(temp_height, std::string(screen_width, ' '));
+            start_x = (screen_width / 2) - (width / 2);
+            start_y = (buffer.size() / 2) - (height / 2);
+        }
         clear_buffer(center_buffer, width);
         style_buffer.clear();
 
@@ -441,13 +479,13 @@ int choice_popup(std::vector<std::string> &buffer, const std::string message,
 
         clear_screen();
         draw_buffer(buffer, style_buffer);
+    
+        if (!wait_for_input()) continue;
+
         ch = getchar();
         if (ch == 27) {
+            if (!kbhit()) continue;
             ch = getchar();
-            if (ch != 91) {
-                continue;
-            }
-
             ch = getchar();
             switch (ch) {
                 case 67:  // RIGHT ARROW
@@ -483,10 +521,18 @@ std::string input_popup(std::vector<std::string> &buffer,
 
     int middle = width / 2;
     int message_pos = middle - (message.length() / 2);
-    std::string info = "press ESC twice to quit.";
+    std::string info = "press ESC to quit.";
     int info_pos = middle - (info.length() / 2);
     int input_pos = 6;
     while (true) {
+        int temp_width, temp_height;
+        get_console_size(temp_width, temp_height);
+        if (temp_width != screen_width) {
+            screen_width = temp_width;
+            buffer = std::vector(temp_height, std::string(screen_width, ' '));
+            start_x = (screen_width / 2) - (width / 2);
+            start_y = (buffer.size() / 2) - (height / 2);
+        }
         clear_buffer(center_buffer, width);
         clear_buffer(input_box, 38);
         style_buffer.clear();
@@ -533,13 +579,18 @@ std::string input_popup(std::vector<std::string> &buffer,
         int cursor_x = start_x + input_pos + ((input_buffer.length()) % 36) + 1;
 
         set_cursor_pos(cursor_x + 1, cursor_y + 1);
+        
+        if (!wait_for_input()) continue;
+            
         ch = getchar();
         if (ch == 27) {
-            ch = getchar();
-            if (ch != 91) {
+            if (!kbhit()) {
                 return "";
             }
             ch = getchar();
+            if (kbhit()) {
+                ch = getchar();
+            }
         } else if (ch == 127) {
             if (!input_buffer.empty()) {
                 input_buffer.pop_back();
