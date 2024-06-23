@@ -30,7 +30,14 @@ void main_menu(sqlite3 *db, std::vector<std::string> &buffer,
         }
     }
 
+    size_t start_scrolling = 5;
+    size_t projects_start_index = 0;
+    size_t projects_height = screen_height - 5;
+    std::string info =
+        "Use arrows to navigate the menu. Press ENTER to open a project, and "
+        "press \'q\' to quit.";
     while (true) {
+        size_t info_offset = 0;
         clear_screen();
         int temp_width, temp_height;
         get_console_size(temp_width, temp_height);
@@ -38,43 +45,65 @@ void main_menu(sqlite3 *db, std::vector<std::string> &buffer,
             screen_width = temp_width;
             screen_height = temp_height;
             buffer = std::vector(screen_height, std::string(screen_width, ' '));
+            projects_height = screen_height - 5;
         } else {
             clear_buffer(buffer, screen_width);
         }
         style_buffer.clear();
 
         insert_into_buffer(buffer, 1, 1, "Projects:");
-        insert_colored(buffer, style_buffer, 1, 2,
-                       "Use arrows to navigate the menu. Press ENTER to open a "
-                       "project, and press \'q\' to quit.",
-                       "\033[3;36m");
+        if (info.size() < static_cast<size_t>(screen_width) - 4) {
+            insert_colored(buffer, style_buffer, 1, 2, info, "\033[3;36m");
+        } else {
+            size_t pos = 0;
+            while (info.size() > pos) {
+                std::string i = info.substr(pos, screen_width - 4);
+                insert_colored(buffer, style_buffer, 1, 2 + info_offset, i,
+                               "\033[3;36m");
+                pos += screen_width - 2;
+                info_offset++;
+            }
+            info_offset--;
+        }
 
-        draw_horizontal_line(buffer, 0, screen_width, 3, '-');
-        for (size_t i = 0; i < projects.size(); i++) {
+        draw_horizontal_line(buffer, 0, screen_width, 3 + info_offset, '-');
+        if (buffer.size() - projects_start_index >
+                projects_height - info_offset ||
+            projects_start_index > y - start_scrolling) {
+            if (static_cast<size_t>(y) > start_scrolling) {
+                projects_start_index = y - start_scrolling;
+            } else if (static_cast<size_t>(y) == start_scrolling) {
+                projects_start_index = 0;
+            }
+        }
+
+        for (size_t i = 0; i + projects_start_index < projects.size(); i++) {
+            if (i + projects_start_index > projects_height) break;
             bool has_todo = false;
-            bool is_selected = static_cast<size_t>(y) == i;
+            bool is_selected =
+                static_cast<size_t>(y) == i + projects_start_index;
             for (size_t x = 0; x < projects_with_todo.size(); x++) {
-                if (projects_with_todo[x] == projects[i].id) {
+                if (projects_with_todo[x] ==
+                    projects[i + projects_start_index].id) {
                     has_todo = true;
                     break;
                 }
             }
-
+            const std::string name = projects[i + projects_start_index].name;
             if (has_todo && is_selected) {
-                insert_colored(buffer, style_buffer, 1, i + 4, projects[i].name,
-                               "\033[91;7;3m");
+                insert_colored(buffer, style_buffer, 1, i + 4 + info_offset,
+                               name, "\033[91;7;3m");
             } else if (has_todo) {
-                insert_colored(buffer, style_buffer, 1, i + 4, projects[i].name,
-                               "\033[91m");
+                insert_colored(buffer, style_buffer, 1, i + 4 + info_offset,
+                               name, "\033[91m");
             } else if (is_selected) {
-                insert_colored(buffer, style_buffer, 1, i + 4, projects[i].name,
-                               "\033[7;3m");
+                insert_colored(buffer, style_buffer, 1, i + 4 + info_offset,
+                               name, "\033[7;3m");
 
             } else {
-                insert_into_buffer(buffer, 1, i + 4, projects[i].name);
+                insert_into_buffer(buffer, 1, i + 4 + info_offset, name);
             }
         }
-
         add_border(buffer, screen_width);
         draw_buffer(buffer, style_buffer);
         if (!wait_for_input()) continue;
@@ -154,10 +183,16 @@ void project_menu(sqlite3 *db, std::vector<std::string> &buffer,
     int right_y = 0;
     int tree_offset = 5;
     int info_offset = 0;
-    int start_scrolling = 5;
     int tree_starting_index = 0;
     int todo_starting_index = 0;
     size_t todo_height = screen_height - 4 - 9;
+    int start_scrolling = todo_height - 1 < 5 ? todo_height - 2 : 5;
+    std::string left_info =
+        "Navigate using the arrow keys. Press ENTER over a file you wish "
+        "to edit, and \'q\' to quit.";
+    std::string right_info =
+        "When focusing this section press \'a\' to add a todo entry and "
+        "ENTER to remove an entry.";
     while (true) {
         info_offset = 0;
         int temp_width, temp_height;
@@ -184,9 +219,6 @@ void project_menu(sqlite3 *db, std::vector<std::string> &buffer,
         // LEFT BUFFER
         insert_colored(left_buffer, left_style_buffer, 1, 1, "Project Tree",
                        x == 0 ? "\033[7;1m" : "\033[1m");
-        std::string left_info =
-            "Navigate using the arrow keys. Press ENTER over a file you wish "
-            "to edit, and \'q\' to quit.";
         if (left_info.length() < left_width - 1) {
             insert_colored(left_buffer, left_style_buffer, 1, 2, left_info,
                            "\033[3;36m");
@@ -225,9 +257,6 @@ void project_menu(sqlite3 *db, std::vector<std::string> &buffer,
         info_offset = 0;
         insert_colored(right_buffer, right_style_buffer, 1, 1, "Todo List",
                        x == 1 ? "\033[7;1m" : "\033[1m");
-        std::string right_info =
-            "When focusing this section press \'a\' to add a todo entry and "
-            "ENTER to remove an entry.";
         size_t max_info_width = middle - 1;
         if (right_info.size() < max_info_width) {
             insert_colored(right_buffer, right_style_buffer, 1, 2, right_info,
@@ -257,14 +286,22 @@ void project_menu(sqlite3 *db, std::vector<std::string> &buffer,
 
         for (size_t i = 0;
              i + todo_starting_index < todos.size() && i < todo_height; i++) {
+            std::string todo_string;
+            if (todos[i + todo_starting_index].task.size() >= static_cast<size_t>(middle - 2)) {
+                todo_string =
+                    todos[i + todo_starting_index].task.substr(0, middle - 5) +
+                    "...";
+            } else {
+                todo_string = todos[i + todo_starting_index].task;
+            }
+
             if (i + todo_starting_index == static_cast<size_t>(right_y)) {
                 insert_colored(right_buffer, right_style_buffer, 1,
-                               4 + info_offset + i,
-                               todos[i + todo_starting_index].task,
+                               4 + info_offset + i, todo_string,
                                x == 1 ? "\033[7;3m" : "");
             } else {
                 insert_into_buffer(right_buffer, 1, 4 + info_offset + i,
-                                   todos[i + todo_starting_index].task);
+                                   todo_string);
             }
         }
 
