@@ -131,6 +131,12 @@ void main_menu(sqlite3 *db, std::vector<std::string> &buffer,
             break;
         } else if (ch == '\n') {
             project_menu(db, buffer, screen_width, screen_height, projects[y]);
+            projects_with_todo.clear();
+            for (size_t i = 0; i < projects.size(); i++) {
+                if (!get_todos(db, projects[i]).empty()) {
+                    projects_with_todo.push_back(projects[i].id);
+                }
+            }
         } else if (ch == 'f') {
             popup(buffer, "Fetching all projects", screen_width);
             clear_screen();
@@ -287,7 +293,8 @@ void project_menu(sqlite3 *db, std::vector<std::string> &buffer,
         for (size_t i = 0;
              i + todo_starting_index < todos.size() && i < todo_height; i++) {
             std::string todo_string;
-            if (todos[i + todo_starting_index].task.size() >= static_cast<size_t>(middle - 2)) {
+            if (todos[i + todo_starting_index].task.size() >=
+                static_cast<size_t>(middle - 2)) {
                 todo_string =
                     todos[i + todo_starting_index].task.substr(0, middle - 5) +
                     "...";
